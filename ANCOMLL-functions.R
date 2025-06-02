@@ -218,11 +218,11 @@ output2 <- foreach(i=1:iterations,.packages=c("MASS"),
                     adjusted_p=result$adjusted_p
               return(c(mu0,mu1,adjusted_p))
                   }
-save(output2, file= 'G:\\My Drive\\PhD UHasselt Connie.zip (Unzipped Files)\\ANCOM-BC\\output2.RData')
+save(output2, file= '~/output2.RData')
 
 close(pb)
 stopCluster(cl)
-save(output, file= 'G:\\My Drive\\PhD UHasselt Connie.zip (Unzipped Files)\\ANCOM-BC\\output.RData')
+save(output, file= '~/output.RData')
 
 pvalues<-output2[,501:750]
 
