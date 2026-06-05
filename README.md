@@ -52,7 +52,7 @@ Calls `est.par2`, computes per-taxon pairwise contrast variances `V_j`, selects 
 
 **Ordinary bootstrap (`ANCOMLL`):** Resamples subjects with replacement within each group across `B` bootstrap replicates. The full `ref()` pipeline is re-run on each bootstrap dataset and the empirical variance of bias-corrected contrasts is used as the standard error.
 
-**Wild bootstrap + smoothed variance (`Version_09_03_2023`):** An earlier formulation operating on `phyloseq` objects. The wild bootstrap uses a polynomial weighting function optimised to match the distribution of estimating-equation residuals. The smoothed variance estimator pools the mean-variance relationship across taxa via a Poisson GLM, then uses Monte Carlo simulation from a bivariate normal to propagate uncertainty through the log transformation.
+**Wild bootstrap + smoothed variance (`WildBootstrap_SmoothedVariance`):** An earlier formulation operating on `phyloseq` objects. The wild bootstrap uses a polynomial weighting function optimised to match the distribution of estimating-equation residuals. The smoothed variance estimator pools the mean-variance relationship across taxa via a Poisson GLM, then uses Monte Carlo simulation from a bivariate normal to propagate uncertainty through the log transformation.
 
 ---
 
@@ -76,7 +76,7 @@ The nominal FDR level is 0.05. ANCOM-LL SV achieves FDR control but at the cost 
 .
 ├── R/
 │   ├── ANCOMLL-functions.R       # Core pipeline: sim.data, est.par2, ref, ANCOMLL
-│   └── Version_09_03_2023.R      # Phyloseq-based pipeline with wild bootstrap + smoothed variance
+│   └── WildBootstrap_SmoothedVariance.R      # Phyloseq-based pipeline with wild bootstrap + smoothed variance
 ├── figures/
 │   ├── sensitivity_fdr.R         # Plotting script for FDR/sensitivity bar charts
 │   ├── FDR_comparison.png
@@ -127,10 +127,4 @@ res_sv  <- run.scenario(physeq, V.method = "none", var.method = "smoothed", B = 
 
 ## Citation
 
-> Musisi, C., Thas, O., Jaspers, S., Kodalci, L. and Babiera, J. (2026). An Adaptive Test for Differential Abundance in Microbiome Studies. *Submitted to PLOS Computational Biology* (PCOMPBIOL-D-25-01876).
-
-## Author
-
-Connie Musisi  
-PhD candidate, Hasselt University (UHasselt)  
-GitHub: [@Connie-Musisi](https://github.com/Connie-Musisi)
+> Lin, H., Peddada, S.D. Analysis of compositions of microbiomes with bias correction. Nat Commun 11, 3514 (2020). https://doi.org/10.1038/s41467-020-17041-7
