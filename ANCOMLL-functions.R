@@ -1,4 +1,4 @@
-# ======== ANCOM LOG LINEAR ========
+# ======== ANCOM LOG LINEAR =======
 library(parallel)
 library(doSNOW)
 
