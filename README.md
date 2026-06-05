@@ -1,86 +1,131 @@
-# ANCOM-LL: A Log-Linear Variant of ANCOM-BC for Differential Abundance Analysis
+# ANCOM-LL: A Log-Linear Variant of ANCOM-BC
 
-## Overview
+ANCOM-LL is a log-link alternative to [ANCOM-BC](https://doi.org/10.1038/s41467-020-17041-7) for differential abundance (DA) testing in microbiome studies. It retains ANCOM-BC's sampling-fraction bias correction but replaces the log-count linear model with a direct model for `log E(N)`, avoiding pseudo-count dependence and targeting a more interpretable mean-scale log-fold change.
 
-ANCOM-LL is a log-link alternative to [ANCOM-BC](https://doi.org/10.1038/s41467-020-17041-7) for differential abundance (DA) testing in microbiome studies. It retains ANCOM-BC's bias-correction rationale — estimating and removing a sample-specific sampling-fraction term before testing — but replaces the log-count linear model with a quasi-Poisson GLM with a log link. This means the model targets `log E(N)` rather than `E(log N)`, which is a more interpretable estimand under overdispersion and sparsity, and avoids the need for a pseudo-count when zeros are present.
+This work is part of a PhD thesis on adaptive methods for differential abundance analysis at Hasselt University (UHasselt).
 
-The method was developed as part of a PhD thesis on adaptive methods for differential abundance analysis at Hasselt University (UHasselt), under the supervision of Olivier Thas.
+---
 
 ## Motivation
 
-ANCOM-BC estimates log-fold changes (LFCs) from the difference of mean log-counts across groups. When data are sparse or overdispersed, `E[log N] ≠ log E[N]`, so the estimated effect size can be biased relative to the mean-scale LFC. ANCOM-LL addresses this by modelling the count mean directly via a log-link GLM. Additionally, it avoids having to add a pseudo-count to handle zero observations, which can introduce arbitrary bias for rare taxa.
+ANCOM-BC estimates group differences from mean log-counts, targeting `E[log N]`. Under overdispersion and sparsity, `E[log N] ≠ log E[N]`, so estimated effects can be biased relative to the mean-scale LFC. ANCOM-LL models the count mean directly, which:
+
+- avoids adding a pseudo-count before log-transformation,
+- targets `log E(N)` more directly,
+- allows variance to be estimated using procedures robust to mean-variance misspecification.
+
+---
 
 ## Model
 
-For taxon *j* in sample *i*, let *N_ij* be the observed count, *c_i* the unknown sampling fraction, *X_i* the binary group indicator, and *α_j* the log-fold change of interest. The mean model is:
+For taxon *j* in sample *i*, with group indicator *X_i* and unknown sampling fraction *c_i*:
 
 ```
-log E(N_ij) = S_i + τ_j + X_i * α_j
+E(N_ij) = c_i · θ_j · exp(X_i · α_j)
 ```
 
-where `S_i = log(c_i)` is the sampling-fraction offset and `τ_j` is the taxon baseline. Parameters are estimated via M-estimating equations under a quasi-Poisson working model, which is consistent under mean-model misspecification.
+Taking logs:
 
-Because this model is not identified without a reference constraint, a data-driven reference set *J* is selected — taxa in the lowest 10th percentile of the distribution of pairwise contrast variances. The bias correction term *γ̂* is then estimated as the average estimated abundance difference between groups within *J*, and the bias-corrected contrast `α_j - γ̂` is used for inference.
+```
+log E(N_ij) = S_i + τ_j + X_i · α_j
+```
 
-## Variance Estimation
+where `S_i = log(c_i)` is the sampling-fraction offset and `α_j` is the LFC of interest. Parameters are estimated iteratively via a closed-form M-estimating procedure (not a full GLM) that alternates between estimating sampling fractions `D_k` and taxon baselines `μ_j`.
 
-Variance estimation is the main methodological challenge. Three strategies were evaluated:
+Because the model is not identified without a constraint, a data-driven **reference set** *J* is selected from taxa whose pairwise contrast variances fall in the lowest 10th percentile. The bias-corrected contrast `α_j − γ̂` is then used for inference, where `γ̂ = mean(μ1_J) − mean(μ0_J)`.
 
-- **Sandwich (Huber-White)**: per-taxon robust variance, consistent under misspecification but unstable at low depth.
-- **Smoothed mean-variance sandwich (SV)**: pools the mean-variance relationship across taxa via LOESS before substituting into the sandwich formula, borrowing strength for low-abundance taxa.
-- **Wild bootstrap (WB)**: perturbs counts with Rademacher or Mammen multipliers and re-estimates the full pipeline (including reference-set selection) in each replicate, propagating uncertainty from the bias-correction step.
+---
 
-## Results Summary
+## Implementation
 
-Evaluated on negative-binomial simulations (250 taxa, 100 samples, LFC = 1, 10% DA taxa, ~28% zeros):
+The pipeline has three components:
 
-- **ANCOM-BC**: FDR near nominal (5%), competitive sensitivity — used as the reference benchmark.
-- **ANCOM-LL SV**: FDR near nominal but substantially reduced sensitivity (conservative behaviour).
-- **ANCOM-LL WB**: Recovers some sensitivity but with inflated FDR (loss of calibration).
+### 1. Parameter estimation — `est.par2(db)`
 
-Both variance estimators systematically underestimate the true variance of the bias-corrected contrast, the wild bootstrap more severely. This is the primary bottleneck: the variance estimation problem on the count scale is harder than on the log-count scale, and neither estimator adequately propagates the uncertainty arising from reference-set selection.
+Iteratively estimates taxon baselines (`mu0`, `mu1`) and sampling fractions (`D0`, `D1`) from a long-format data frame with columns `O` (count), `group`, `subject`, and `taxon`.
 
-The conclusion is that switching from a log-count to a log-link model does not produce material gains once the bias correction and reference frame are accounted for. The reference frame — not the link function — is the dominant driver of performance in both ANCOM-BC and ANCOM-LL.
+### 2. Reference set selection — `ref(db)`
 
-## Repository Structure
+Calls `est.par2`, computes per-taxon pairwise contrast variances `V_j`, selects the bottom 10th percentile as the reference set *J*, and returns the bias correction term `gamma_hatdiff`.
+
+### 3. Variance estimation — two options
+
+**Ordinary bootstrap (`ANCOMLL`):** Resamples subjects with replacement within each group across `B` bootstrap replicates. The full `ref()` pipeline is re-run on each bootstrap dataset and the empirical variance of bias-corrected contrasts is used as the standard error.
+
+**Wild bootstrap + smoothed variance (`Version_09_03_2023`):** An earlier formulation operating on `phyloseq` objects. The wild bootstrap uses a polynomial weighting function optimised to match the distribution of estimating-equation residuals. The smoothed variance estimator pools the mean-variance relationship across taxa via a Poisson GLM, then uses Monte Carlo simulation from a bivariate normal to propagate uncertainty through the log transformation.
+
+---
+
+## Simulation results
+
+Evaluated on 100 negative-binomial datasets (250 taxa, 100 samples per group, LFC = 1, 10% DA taxa, ~28% zeros):
+
+| Method        | FDR   | Sensitivity |
+|---------------|-------|-------------|
+| ANCOM-BC      | 0.071 | 0.884       |
+| ANCOM-LL SV   | 0.054 | 0.212       |
+| ANCOM-LL WB   | 0.127 | 0.653       |
+
+The nominal FDR level is 0.05. ANCOM-LL SV achieves FDR control but at the cost of very low sensitivity. ANCOM-LL WB recovers sensitivity but exceeds the nominal FDR. Both variance estimators systematically underestimate the true variance of the bias-corrected contrast — the wild bootstrap more severely — confirming that variance estimation rather than the link function is the dominant bottleneck.
+
+---
+
+## Repository structure
 
 ```
 .
 ├── R/
-│   ├── ancomll_fit.R          # Main fitting function (quasi-Poisson GLM + bias correction)
-│   ├── ancomll_variance.R     # Sandwich, smoothed-variance, and wild-bootstrap estimators
-│   └── reference_selection.R  # Data-driven reference set selection
-├── simulations/
-│   ├── nb_simulation.R        # Negative-binomial simulation study
-│   └── eval_ancomll.R         # Evaluation metrics (FDR, sensitivity)
-├── vignettes/
-│   └── ancomll_demo.Rmd       # Reproducible demo on the Dietswap dataset
+│   ├── ANCOMLL-functions.R       # Core pipeline: sim.data, est.par2, ref, ANCOMLL
+│   └── Version_09_03_2023.R      # Phyloseq-based pipeline with wild bootstrap + smoothed variance
+├── figures/
+│   ├── sensitivity_fdr.R         # Plotting script for FDR/sensitivity bar charts
+│   ├── FDR_comparison.png
+│   └── sensitivity_fdr.png
 └── README.md
 ```
+
+---
 
 ## Dependencies
 
 ```r
-install.packages(c("phyloseq", "MASS", "sandwich", "lmtest", "microbiome"))
+install.packages(c("parallel", "doSNOW", "foreach", "MASS", "mvtnorm",
+                   "ggplot2", "patchwork", "tidyr", "dplyr", "phyloseq"))
 ```
 
-The `microbiome` package (Bioconductor) is used for the Dietswap example dataset.
+`mvtnorm` is required for `rmvnorm()` used in the smoothed-variance estimator.
 
-## Quick Start
+---
+
+## Quick start
 
 ```r
-source("R/ancomll_fit.R")
+source("R/ANCOMLL-functions.R")
 
-# count_mat: taxa × samples matrix of non-negative integers
-# group:     binary group vector (0/1), length = ncol(count_mat)
+# Simulate data
+dat <- sim.data(n = 100, n.taxa = 250, FC = c(1, 3, 2),
+                phi = 0.5, SF0 = 0.8, SF1 = 1.2)
 
-result <- ancomll(count_mat, group, variance = "sv", alpha = 0.05)
-head(result$results)  # taxon-level LFCs, standard errors, q-values
+# Run ANCOM-LL with ordinary bootstrap (B replicates)
+res <- ANCOMLL(dat$db, B = 200)
+
+# DA taxa at 5% FDR
+which(res$adjusted_p < 0.05)
 ```
 
-## Citation
+For the phyloseq-based pipeline (wild bootstrap or smoothed variance):
 
-This work is part of:
+```r
+source("R/Version_09_03_2023.R")
+
+# physeq must have a "DE.ind" column in tax_table and a group variable in sample_data
+res_wb  <- run.scenario(physeq, V.method = "none", var.method = "wild",     B = 100)
+res_sv  <- run.scenario(physeq, V.method = "none", var.method = "smoothed", B = 100)
+```
+
+---
+
+## Citation
 
 > Musisi, C., Thas, O., Jaspers, S., Kodalci, L. and Babiera, J. (2026). An Adaptive Test for Differential Abundance in Microbiome Studies. *Submitted to PLOS Computational Biology* (PCOMPBIOL-D-25-01876).
 
